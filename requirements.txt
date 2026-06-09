@@ -1,0 +1,6 @@
+anthropic>=0.30.0
+tavily-python>=0.3.3
+apscheduler>=3.10.4
+python-dotenv>=1.0.0
+pydantic-settings>=2.3.0
+rich>=13.7.0
