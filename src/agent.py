@@ -3,9 +3,9 @@ import logging
 from datetime import date
 from typing import Any
 
-import anthropic
+from openai import OpenAI
 
-from src.config import settings, CATEGORIES, SCORING_WEIGHTS, TOP_N_PRODUCTS
+from src.config import settings
 from src.tools import TOOL_SCHEMAS, execute_tool
 
 logger = logging.getLogger(__name__)
@@ -106,73 +106,87 @@ SYSTEM_PROMPT = """你是一位专业的淘宝电商选品顾问，专门帮助�
 
 
 def run_daily_research() -> dict[str, Any]:
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-    today = date.today().isoformat()
-    user_message = (
-        f"今天是{today}。请开始今天的淘宝选品研究。\n\n"
-        f"需要研究的品类：\n"
-        f"1. 纸品（卷纸、抽纸、湿巾、厨房纸、纸尿裤）\n"
-        f"2. 家清个护（洗衣液、洗洁精、沐浴露、洗发水、消毒液、牙膏）\n\n"
-        f"请按照工作流程，先做品类趋势调研，再对候选产品深度研究，"
-        f"每个品类至少做4次搜索，最后输出完整的JSON推荐报告。"
+    client = OpenAI(
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
     )
 
-    messages: list[dict] = [{"role": "user", "content": user_message}]
+    today = date.today().isoformat()
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"今天是{today}。请开始今天的淘宝选品研究。\n\n"
+                f"需要研究的品类：\n"
+                f"1. 纸品（卷纸、抽纸、湿巾、厨房纸、纸尿裤）\n"
+                f"2. 家清个护（洗衣液、洗洁精、沐浴露、洗发水、消毒液、牙膏）\n\n"
+                f"请按照工作流程，先做品类趋势调研，再对候选产品深度研究，"
+                f"每个品类至少做4次搜索，最后输出完整的JSON推荐报告。"
+            ),
+        },
+    ]
+
     turn_count = 0
 
     while turn_count < settings.max_agent_turns:
         turn_count += 1
         logger.info(f"Agent turn {turn_count}/{settings.max_agent_turns}")
 
-        response = client.messages.create(
+        response = client.chat.completions.create(
             model=settings.model,
             max_tokens=settings.max_tokens,
-            system=SYSTEM_PROMPT,
             tools=TOOL_SCHEMAS,
             messages=messages,
         )
 
-        logger.debug(f"Stop reason: {response.stop_reason}, blocks: {len(response.content)}")
-        messages.append({"role": "assistant", "content": response.content})
+        choice = response.choices[0]
+        finish_reason = choice.finish_reason
+        msg = choice.message
 
-        if response.stop_reason == "end_turn":
-            return _extract_json_from_response(response.content)
+        logger.debug(f"finish_reason={finish_reason}")
 
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    logger.info(f"Tool call: {block.name}({json.dumps(block.input, ensure_ascii=False)})")
-                    result_str = execute_tool(block.name, block.input)
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result_str,
-                        }
-                    )
-            messages.append({"role": "user", "content": tool_results})
+        # Record assistant turn (preserve tool_calls if present)
+        assistant_entry: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+        if msg.tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(assistant_entry)
+
+        if finish_reason == "stop":
+            return _extract_json_from_text(msg.content or "")
+
+        if finish_reason == "tool_calls" and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_input = json.loads(tc.function.arguments)
+                logger.info(f"Tool call: {tc.function.name}({json.dumps(tool_input, ensure_ascii=False)})")
+                result_str = execute_tool(tc.function.name, tool_input)
+                messages.append(
+                    {"role": "tool", "tool_call_id": tc.id, "content": result_str}
+                )
             continue
 
-        logger.warning(f"Unexpected stop reason: {response.stop_reason}")
+        logger.warning(f"Unexpected finish_reason: {finish_reason}")
         break
 
     logger.error(f"Agent loop ended after {turn_count} turns without completing")
     return {"error": "max_turns_exceeded", "turns_used": turn_count}
 
 
-def _extract_json_from_response(content_blocks: list) -> dict[str, Any]:
-    for block in content_blocks:
-        if hasattr(block, "text"):
-            text = block.text
-            start = text.find("```json")
-            end = text.rfind("```")
-            if start != -1 and end > start:
-                json_str = text[start + 7 : end].strip()
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON parse failed: {e}")
-                    return {"raw_text": text, "parse_error": str(e)}
-    return {"error": "no_json_found"}
+def _extract_json_from_text(text: str) -> dict[str, Any]:
+    start = text.find("```json")
+    end = text.rfind("```")
+    if start != -1 and end > start:
+        json_str = text[start + 7 : end].strip()
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parse failed: {e}")
+            return {"raw_text": text, "parse_error": str(e)}
+    return {"error": "no_json_found", "raw_text": text}

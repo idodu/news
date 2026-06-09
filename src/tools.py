@@ -9,72 +9,81 @@ logger = logging.getLogger(__name__)
 
 TOOL_SCHEMAS = [
     {
-        "name": "search_market",
-        "description": (
-            "搜索中国电商市场数据，获取热销产品、销量趋势、品类整体动态。"
-            "适合用于品类整体研究。搜索覆盖淘宝、1688、百度、小红书。"
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": (
-                        "中文搜索词，例如：'淘宝2024卷纸热销款式推荐'、"
-                        "'家用洗衣液市场趋势爆款'、'湿巾品牌消费者推荐'"
-                    ),
+        "type": "function",
+        "function": {
+            "name": "search_market",
+            "description": (
+                "搜索中国电商市场数据，获取热销产品、销量趋势、品类整体动态。"
+                "适合用于品类整体研究。搜索覆盖淘宝、1688、百度、小红书。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "中文搜索词，例如：'淘宝2024卷纸热销款式推荐'、"
+                            "'家用洗衣液市场趋势爆款'、'湿巾品牌消费者推荐'"
+                        ),
+                    },
+                    "focus": {
+                        "type": "string",
+                        "enum": ["trending", "competition", "pricing", "consumer_reviews"],
+                        "description": (
+                            "搜索侧重点："
+                            "trending=热销趋势, competition=竞争格局, "
+                            "pricing=价格区间, consumer_reviews=消费者评价"
+                        ),
+                    },
                 },
-                "focus": {
-                    "type": "string",
-                    "enum": ["trending", "competition", "pricing", "consumer_reviews"],
-                    "description": (
-                        "搜索侧重点："
-                        "trending=热销趋势, competition=竞争格局, "
-                        "pricing=价格区间, consumer_reviews=消费者评价"
-                    ),
-                },
+                "required": ["query", "focus"],
             },
-            "required": ["query", "focus"],
         },
     },
     {
-        "name": "search_product_detail",
-        "description": (
-            "对特定产品进行深度研究，获取1688供货价、竞争对手数量、"
-            "消费者需求和差异化机会。在识别候选产品后使用此工具。"
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "product_name": {
-                    "type": "string",
-                    "description": "产品中文名称，例如：'无荧光剂抽纸'、'浓缩洗衣液'",
+        "type": "function",
+        "function": {
+            "name": "search_product_detail",
+            "description": (
+                "对特定产品进行深度研究，获取1688供货价、竞争对手数量、"
+                "消费者需求和差异化机会。在识别候选产品后使用此工具。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_name": {
+                        "type": "string",
+                        "description": "产品中文名称，例如：'无荧光剂抽纸'、'浓缩洗衣液'",
+                    },
+                    "aspect": {
+                        "type": "string",
+                        "enum": [
+                            "supplier_pricing",
+                            "competitor_analysis",
+                            "consumer_demand",
+                            "differentiation",
+                        ],
+                        "description": (
+                            "研究维度："
+                            "supplier_pricing=1688供货价格, competitor_analysis=竞争对手分析, "
+                            "consumer_demand=消费者需求, differentiation=差异化机会"
+                        ),
+                    },
                 },
-                "aspect": {
-                    "type": "string",
-                    "enum": [
-                        "supplier_pricing",
-                        "competitor_analysis",
-                        "consumer_demand",
-                        "differentiation",
-                    ],
-                    "description": (
-                        "研究维度："
-                        "supplier_pricing=1688供货价格, competitor_analysis=竞争对手分析, "
-                        "consumer_demand=消费者需求, differentiation=差异化机会"
-                    ),
-                },
+                "required": ["product_name", "aspect"],
             },
-            "required": ["product_name", "aspect"],
         },
     },
     {
-        "name": "get_current_date",
-        "description": "返回今天的日期，用于季节性分析和时效性判断。",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
+        "type": "function",
+        "function": {
+            "name": "get_current_date",
+            "description": "返回今天的日期，用于季节性分析和时效性判断。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
         },
     },
 ]
