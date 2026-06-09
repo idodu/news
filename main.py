@@ -58,8 +58,8 @@ def cmd_validate(_args):
     if not settings.llm_api_key:
         console.print("[red]错误：LLM_API_KEY 未设置（在 .env 中填入硅基流动 API Key）[/red]")
         sys.exit(1)
-    if not settings.tavily_api_key:
-        console.print("[red]错误：TAVILY_API_KEY 未设置[/red]")
+    if not settings.serper_api_key:
+        console.print("[red]错误：SERPER_API_KEY 未设置（去 serper.dev 免费注册）[/red]")
         sys.exit(1)
 
     console.print(f"  模型:       {settings.model}")
@@ -67,12 +67,17 @@ def cmd_validate(_args):
     console.print(f"  报告目录:   {settings.report_dir}")
     console.print(f"  定时时间:   每天北京时间 {settings.schedule_hour:02d}:{settings.schedule_minute:02d}")
 
-    console.print("\n[bold]测试 Tavily API...[/bold]")
-    from tavily import TavilyClient
-    tc = TavilyClient(api_key=settings.tavily_api_key)
-    result = tc.search("淘宝卷纸热销", max_results=1)
-    count = len(result.get("results", []))
-    console.print(f"  [green]Tavily OK[/green] — 返回 {count} 条结果")
+    console.print("\n[bold]测试 Serper 搜索 API...[/bold]")
+    import requests as req
+    resp = req.post(
+        "https://google.serper.dev/search",
+        headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
+        json={"q": "淘宝卷纸热销", "gl": "cn", "hl": "zh-cn", "num": 1},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    count = len(resp.json().get("organic", []))
+    console.print(f"  [green]Serper OK[/green] — 返回 {count} 条结果")
 
     console.print("\n[bold]测试 LLM API...[/bold]")
     from openai import OpenAI

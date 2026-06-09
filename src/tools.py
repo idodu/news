@@ -102,17 +102,39 @@ _ASPECT_TO_QUERY = {
     "differentiation": "{product} 差异化卖点 创新 小众 特色",
 }
 
-_ASPECT_TO_DOMAINS = {
-    "supplier_pricing": ["1688.com", "taobao.com"],
-    "competitor_analysis": ["taobao.com", "tmall.com", "jd.com"],
-    "consumer_demand": ["baidu.com", "xiaohongshu.com", "zhihu.com"],
-    "differentiation": ["xiaohongshu.com", "zhihu.com", "baidu.com"],
+_FOCUS_TO_SITE = {
+    "trending": "site:taobao.com OR site:baidu.com OR site:xiaohongshu.com",
+    "competition": "site:taobao.com OR site:tmall.com OR site:jd.com",
+    "pricing": "site:1688.com OR site:taobao.com OR site:pinduoduo.com",
+    "consumer_reviews": "site:xiaohongshu.com OR site:zhihu.com OR site:baidu.com",
+}
+
+_ASPECT_TO_SITE = {
+    "supplier_pricing": "site:1688.com OR site:taobao.com",
+    "competitor_analysis": "site:taobao.com OR site:tmall.com OR site:jd.com",
+    "consumer_demand": "site:baidu.com OR site:xiaohongshu.com OR site:zhihu.com",
+    "differentiation": "site:xiaohongshu.com OR site:zhihu.com OR site:baidu.com",
 }
 
 
-def _get_tavily_client():
-    from tavily import TavilyClient
-    return TavilyClient(api_key=settings.tavily_api_key)
+def _serper_search(query: str) -> list[dict]:
+    import requests as req
+    resp = req.post(
+        "https://google.serper.dev/search",
+        headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
+        json={"q": query, "gl": "cn", "hl": "zh-cn", "num": SEARCH_RESULTS_PER_QUERY},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    results = []
+    for r in data.get("organic", [])[:SEARCH_RESULTS_PER_QUERY]:
+        results.append({
+            "title": r.get("title", ""),
+            "url": r.get("link", ""),
+            "snippet": r.get("snippet", "")[:400],
+        })
+    return results
 
 
 def execute_tool(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -127,25 +149,11 @@ def execute_tool(tool_name: str, tool_input: dict[str, Any]) -> str:
 
 
 def _search_market(query: str, focus: str) -> str:
-    client = _get_tavily_client()
-    domains = _FOCUS_TO_DOMAINS.get(focus, [])
+    site_filter = _FOCUS_TO_SITE.get(focus, "")
+    full_query = f"{query} {site_filter}" if site_filter else query
     try:
-        result = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=SEARCH_RESULTS_PER_QUERY,
-            include_domains=domains if domains else None,
-            include_raw_content=False,
-        )
-        items = [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "snippet": r.get("content", "")[:400],
-            }
-            for r in result.get("results", [])
-        ]
-        logger.info(f"search_market '{query}' → {len(items)} results")
+        items = _serper_search(full_query)
+        logger.info(f"search_market '{query}' ({focus}) → {len(items)} results")
         return json.dumps(
             {"query": query, "focus": focus, "results": items}, ensure_ascii=False
         )
@@ -155,26 +163,12 @@ def _search_market(query: str, focus: str) -> str:
 
 
 def _search_product_detail(product_name: str, aspect: str) -> str:
-    client = _get_tavily_client()
     query_template = _ASPECT_TO_QUERY.get(aspect, "{product} " + aspect)
     query = query_template.format(product=product_name)
-    domains = _ASPECT_TO_DOMAINS.get(aspect, [])
+    site_filter = _ASPECT_TO_SITE.get(aspect, "")
+    full_query = f"{query} {site_filter}" if site_filter else query
     try:
-        result = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=SEARCH_RESULTS_PER_QUERY,
-            include_domains=domains if domains else None,
-            include_raw_content=False,
-        )
-        items = [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "snippet": r.get("content", "")[:400],
-            }
-            for r in result.get("results", [])
-        ]
+        items = _serper_search(full_query)
         logger.info(f"search_product_detail '{product_name}' ({aspect}) → {len(items)} results")
         return json.dumps(
             {"product": product_name, "aspect": aspect, "query": query, "results": items},

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     llm_api_key: str = ""
     llm_base_url: str = "https://api.siliconflow.cn/v1"
-    tavily_api_key: str = ""
+    serper_api_key: str = ""
     report_dir: Path = Path("./reports")
     schedule_hour: int = 8
     schedule_minute: int = 0
