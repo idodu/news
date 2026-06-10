@@ -67,17 +67,30 @@ def cmd_validate(_args):
     console.print(f"  报告目录:   {settings.report_dir}")
     console.print(f"  定时时间:   每天北京时间 {settings.schedule_hour:02d}:{settings.schedule_minute:02d}")
 
-    console.print("\n[bold]测试 Serper 搜索 API...[/bold]")
+    console.print("\n[bold]测试搜索引擎...[/bold]")
     import requests as req
-    resp = req.post(
-        "https://google.serper.dev/search",
-        headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
-        json={"q": "淘宝卷纸热销", "gl": "cn", "hl": "zh-cn", "num": 1},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    count = len(resp.json().get("organic", []))
-    console.print(f"  [green]Serper OK[/green] — 返回 {count} 条结果")
+    if settings.serper_api_key and not settings.serper_api_key.startswith("your_"):
+        resp = req.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": settings.serper_api_key, "Content-Type": "application/json"},
+            json={"q": "淘宝卷纸热销", "gl": "cn", "hl": "zh-cn", "num": 1},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        count = len(resp.json().get("organic", []))
+        console.print(f"  [green]Serper OK[/green] — 返回 {count} 条结果")
+    else:
+        console.print("  [yellow]Serper Key 未配置，将使用百度搜索抓取（需本机能访问百度）[/yellow]")
+        from bs4 import BeautifulSoup
+        resp = req.get(
+            "https://www.baidu.com/s",
+            params={"wd": "淘宝卷纸热销", "rn": 3},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        count = len(soup.select("div.result, div.c-container"))
+        console.print(f"  [green]百度搜索 OK[/green] — 找到约 {count} 个结果块")
 
     console.print("\n[bold]测试 LLM API...[/bold]")
     from openai import OpenAI

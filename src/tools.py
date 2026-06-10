@@ -117,6 +117,13 @@ _ASPECT_TO_SITE = {
 }
 
 
+def _do_search(query: str) -> list[dict]:
+    """Route to Serper if key is configured, otherwise fall back to Baidu scraping."""
+    if settings.serper_api_key and not settings.serper_api_key.startswith("your_"):
+        return _serper_search(query)
+    return _baidu_search(query)
+
+
 def _serper_search(query: str) -> list[dict]:
     import requests as req
     resp = req.post(
@@ -127,13 +134,53 @@ def _serper_search(query: str) -> list[dict]:
     )
     resp.raise_for_status()
     data = resp.json()
-    results = []
-    for r in data.get("organic", [])[:SEARCH_RESULTS_PER_QUERY]:
-        results.append({
+    return [
+        {
             "title": r.get("title", ""),
             "url": r.get("link", ""),
             "snippet": r.get("snippet", "")[:400],
+        }
+        for r in data.get("organic", [])[:SEARCH_RESULTS_PER_QUERY]
+    ]
+
+
+def _baidu_search(query: str) -> list[dict]:
+    """Scrape Baidu search results. Works on any machine with normal internet access."""
+    import requests as req
+    from bs4 import BeautifulSoup
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    params = {"wd": query, "rn": SEARCH_RESULTS_PER_QUERY, "ie": "utf-8"}
+    resp = req.get(
+        "https://www.baidu.com/s", params=params, headers=headers, timeout=15
+    )
+    resp.raise_for_status()
+    resp.encoding = "utf-8"
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    results = []
+    for item in soup.select("div.result, div.c-container")[:SEARCH_RESULTS_PER_QUERY]:
+        title_el = item.select_one("h3 a, .t a")
+        snippet_el = item.select_one(
+            ".c-abstract, .content-right_8Zs40, span.content-right_8Zs40, .c-span9"
+        )
+        url_el = item.select_one("h3 a")
+        if not title_el:
+            continue
+        results.append({
+            "title": title_el.get_text(strip=True),
+            "url": url_el.get("href", "") if url_el else "",
+            "snippet": snippet_el.get_text(strip=True)[:400] if snippet_el else "",
         })
+    logger.info(f"Baidu scrape '{query}' → {len(results)} results")
     return results
 
 
@@ -152,7 +199,7 @@ def _search_market(query: str, focus: str) -> str:
     site_filter = _FOCUS_TO_SITE.get(focus, "")
     full_query = f"{query} {site_filter}" if site_filter else query
     try:
-        items = _serper_search(full_query)
+        items = _do_search(full_query)
         logger.info(f"search_market '{query}' ({focus}) → {len(items)} results")
         return json.dumps(
             {"query": query, "focus": focus, "results": items}, ensure_ascii=False
@@ -168,7 +215,7 @@ def _search_product_detail(product_name: str, aspect: str) -> str:
     site_filter = _ASPECT_TO_SITE.get(aspect, "")
     full_query = f"{query} {site_filter}" if site_filter else query
     try:
-        items = _serper_search(full_query)
+        items = _do_search(full_query)
         logger.info(f"search_product_detail '{product_name}' ({aspect}) → {len(items)} results")
         return json.dumps(
             {"product": product_name, "aspect": aspect, "query": query, "results": items},
